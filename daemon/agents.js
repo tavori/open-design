@@ -41,6 +41,13 @@ const execFileP = promisify(execFile);
 //     `--output-format stream-json`. Daemon parses it into typed events
 //     (text / thinking / tool_use / tool_result / status) for the UI.
 //   - 'plain' (default)    : raw text, forwarded chunk-by-chunk.
+//
+// Permission posture: the daemon spawns each CLI with cwd pinned to the
+// project folder (`.od/projects/<id>/`), and the web app has no terminal
+// to surface an interactive approve/deny prompt. So every agent runs with
+// its non-interactive/auto-approve switch on — otherwise Write/Edit hangs
+// or errors and the model has to hallucinate a permission button the UI
+// never shows.
 
 const DEFAULT_MODEL_OPTION = { id: 'default', label: 'Default (CLI config)' };
 
@@ -99,6 +106,7 @@ export const AGENT_DEFS = [
       if (dirs.length > 0) {
         args.push('--add-dir', ...dirs);
       }
+      args.push('--permission-mode', 'bypassPermissions');
       return args;
     },
     streamFormat: 'claude-stream-json',
@@ -125,7 +133,9 @@ export const AGENT_DEFS = [
       { id: 'high', label: 'High' },
     ],
     buildArgs: (prompt, _imagePaths, _extra, options = {}) => {
-      const args = ['exec'];
+      // Keep Codex in workspace-write sandbox while avoiding interactive
+      // permission prompts in terminal-less web UI.
+      const args = ['exec', '--full-auto'];
       if (options.model && options.model !== 'default') {
         args.push('--model', options.model);
       }
@@ -150,7 +160,7 @@ export const AGENT_DEFS = [
       { id: 'gemini-2.5-flash', label: 'gemini-2.5-flash' },
     ],
     buildArgs: (prompt, _imagePaths, _extra, options = {}) => {
-      const args = [];
+      const args = ['--yolo'];
       if (options.model && options.model !== 'default') {
         args.push('--model', options.model);
       }
@@ -211,7 +221,7 @@ export const AGENT_DEFS = [
       { id: 'gpt-5', label: 'gpt-5' },
     ],
     buildArgs: (prompt, _imagePaths, _extra, options = {}) => {
-      const args = [];
+      const args = ['--force'];
       if (options.model && options.model !== 'default') {
         args.push('--model', options.model);
       }
@@ -231,7 +241,8 @@ export const AGENT_DEFS = [
       { id: 'qwen3-coder-flash', label: 'qwen3-coder-flash' },
     ],
     buildArgs: (prompt, _imagePaths, _extra, options = {}) => {
-      const args = [];
+      // Qwen Code is a Gemini-CLI fork and supports the same `--yolo` mode.
+      const args = ['--yolo'];
       if (options.model && options.model !== 'default') {
         args.push('--model', options.model);
       }
