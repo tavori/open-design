@@ -35,6 +35,7 @@ import type {
 } from '@open-design/contracts';
 
 export type ExecMode = 'daemon' | 'api';
+export type ApiProtocol = 'anthropic' | 'openai';
 
 export interface MediaProviderCredentials {
   apiKey: string;
@@ -133,6 +134,11 @@ export interface AppConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
+  apiProtocol?: ApiProtocol;
+  /** Internal config schema/migration version for localStorage upgrades. */
+  configMigrationVersion?: number;
+  /** Base URL of the selected known provider; cleared once the user customizes provider fields. */
+  apiProviderBaseUrl?: string | null;
   agentId: string | null;
   skillId: string | null;
   designSystemId: string | null;
