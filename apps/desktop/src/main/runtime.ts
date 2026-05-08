@@ -3,6 +3,9 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
+import type { DesktopExportPdfInput, DesktopExportPdfResult } from "@open-design/sidecar-proto";
+
+import { exportPdfFromHtml } from "./pdf-export.js";
 
 const PENDING_POLL_MS = 120;
 const RUNNING_POLL_MS = 2000;
@@ -59,6 +62,7 @@ export type DesktopRuntime = {
   click(input: DesktopClickInput): Promise<DesktopClickResult>;
   console(): DesktopConsoleResult;
   eval(input: DesktopEvalInput): Promise<DesktopEvalResult>;
+  exportPdf(input: DesktopExportPdfInput): Promise<DesktopExportPdfResult>;
   screenshot(input: DesktopScreenshotInput): Promise<DesktopScreenshotResult>;
   show(): void;
   status(): DesktopStatusSnapshot;
@@ -414,6 +418,9 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
       } catch (error) {
         return { error: error instanceof Error ? error.message : String(error), ok: false };
       }
+    },
+    exportPdf(input) {
+      return exportPdfFromHtml(input);
     },
     async screenshot(input) {
       if (window.isDestroyed()) throw new Error("desktop window is destroyed");
