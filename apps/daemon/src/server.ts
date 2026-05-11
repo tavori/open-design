@@ -2135,7 +2135,18 @@ export interface StartServerOptions {
 const DEFAULT_CHAT_RUN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_CHAT_RUN_INACTIVITY_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
-function resolveChatRunInactivityTimeoutMs() {
+export let dotenvLoaded = false;
+export async function ensureDotenvLoaded() {
+  if (dotenvLoaded) return;
+  dotenvLoaded = true;
+  try {
+    const dotenvPath = path.resolve(process.cwd(), '.env');
+    const { config } = await import('dotenv');
+    config({ path: dotenvPath });
+  } catch { /* dotenv not installed or .env missing */ }
+}
+
+export function resolveChatRunInactivityTimeoutMs() {
   const raw = Number(process.env.OD_CHAT_RUN_INACTIVITY_TIMEOUT_MS);
   // This watchdog observes child stdout/stderr/SSE activity, not real CPU or
   // filesystem progress. Keep the default long enough for agents that spend
@@ -2161,6 +2172,9 @@ export async function startServer({
 }: StartServerOptions = {}) {
   let resolvedPort = port;
   let daemonShuttingDown = false;
+  await ensureDotenvLoaded();
+  const inactivityTimeoutMs = resolveChatRunInactivityTimeoutMs();
+  console.log(`[od] agent inactivity timeout: ${inactivityTimeoutMs}ms (${Math.round(inactivityTimeoutMs / 1000)}s)`);
   const extraAllowedOrigins = configuredAllowedOrigins();
   const app = express();
   app.use(express.json({ limit: '4mb' }));

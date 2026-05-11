@@ -41,6 +41,7 @@
     "better-sqlite3": "^12.9.0",
     "blake3-wasm": "2.1.5",
     "chokidar": "^5.0.0",
+    "dotenv": "^17.4.2",
     "express": "^4.19.2",
     "jszip": "^3.10.1",
     "multer": "^2.1.1",
