@@ -57,6 +57,8 @@ import type {
   ProjectFile,
 } from '../types';
 import { Icon } from './Icon';
+import { PaletteTweaks, type PaletteId } from './PaletteTweaks';
+import { PreviewDrawOverlay } from './PreviewDrawOverlay';
 import {
   buildBoardCommentAttachments,
   liveSnapshotForComment,
@@ -922,13 +924,15 @@ export function LiveArtifactViewer({
           >
             <div className="preview-frame-clip">
               <div style={previewScaleShellStyle(previewViewport, previewScale)}>
-                <iframe
-                  ref={iframeRef}
-                  data-testid="live-artifact-preview-frame"
-                  title={liveArtifact.title}
-                  sandbox="allow-scripts allow-popups"
-                  src={previewUrl}
-                />
+                <PreviewDrawOverlay>
+                  <iframe
+                    ref={iframeRef}
+                    data-testid="live-artifact-preview-frame"
+                    title={liveArtifact.title}
+                    sandbox="allow-scripts allow-popups"
+                    src={previewUrl}
+                  />
+                </PreviewDrawOverlay>
               </div>
             </div>
           </div>
@@ -3208,6 +3212,9 @@ function HtmlViewer({
   const [boardMode, setBoardMode] = useState(false);
   const [boardTool, setBoardTool] = useState<BoardTool>('inspect');
   const [inspectMode, setInspectMode] = useState(false);
+  const [palettePopoverOpen, setPalettePopoverOpen] = useState(false);
+  const [selectedPalette, setSelectedPalette] = useState<PaletteId | null>(null);
+  const [previewPalette, setPreviewPalette] = useState<PaletteId | null>(null);
   // for hint managing hint box state
   const [openHintBox, setOpenHintBox] = useState(true);
   const [manualEditMode, setManualEditMode] = useState(false);
@@ -3448,6 +3455,7 @@ function HtmlViewer({
     isDeck: effectiveDeck,
     commentMode: boardMode || manualEditMode,
     inspectMode,
+    paletteActive: palettePopoverOpen || selectedPalette !== null,
     forceInline,
   });
   const previewSrcUrl = useMemo(
@@ -3476,8 +3484,10 @@ function HtmlViewer({
       commentBridge: boardMode && !manualEditMode,
       inspectBridge: inspectMode,
       editBridge: manualEditMode,
+      paletteBridge: true,
+      initialPalette: selectedPalette,
     }) : ''),
-    [previewSource, effectiveDeck, projectId, file.name, previewStateKey, boardMode, manualEditMode, inspectMode],
+    [previewSource, effectiveDeck, projectId, file.name, previewStateKey, boardMode, manualEditMode, inspectMode, selectedPalette],
   );
 
   useEffect(() => {
@@ -3525,6 +3535,13 @@ function HtmlViewer({
     if (!win) return;
     win.postMessage({ type: 'od:inspect-mode', enabled: inspectMode }, '*');
   }, [inspectMode, srcDoc]);
+
+  useEffect(() => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    const palette = previewPalette ?? selectedPalette;
+    win.postMessage({ type: 'od:palette', palette }, '*');
+  }, [previewPalette, selectedPalette, srcDoc]);
 
   // Mirror the bridge's `od:comment-targets` broadcast into
   // `liveCommentTargets` whenever EITHER Inspect or Comments mode is
@@ -4571,6 +4588,41 @@ function HtmlViewer({
           ) : null}
         </div>
         <div className="viewer-toolbar-actions">
+          <div className="palette-tweaks-anchor">
+            <button
+              type="button"
+              className={`viewer-action${selectedPalette || palettePopoverOpen ? ' active' : ''}`}
+              data-testid="palette-tweaks-toggle"
+              title="Tweaks"
+              aria-haspopup="dialog"
+              aria-expanded={palettePopoverOpen}
+              onClick={() => setPalettePopoverOpen((v) => !v)}
+            >
+              <Icon name="tweaks" size={13} />
+              <span>Tweaks</span>
+              {selectedPalette ? (
+                <span
+                  className="palette-tweaks-badge"
+                  aria-hidden
+                  style={{
+                    backgroundColor:
+                      selectedPalette === 'coral' ? '#ff5a3c' :
+                      selectedPalette === 'electric' ? '#7c3aed' :
+                      selectedPalette === 'acid-forest' ? '#16a34a' :
+                      selectedPalette === 'risograph' ? '#e11d48' :
+                      '#0a0a0a',
+                  }}
+                />
+              ) : null}
+            </button>
+            <PaletteTweaks
+              open={palettePopoverOpen}
+              selected={selectedPalette}
+              onChange={setSelectedPalette}
+              onPreview={setPreviewPalette}
+              onClose={() => setPalettePopoverOpen(false)}
+            />
+          </div>
           <button
             type="button"
             className={`viewer-toggle${boardMode ? ' active' : ''}`}
