@@ -71,6 +71,7 @@ import { handleCritiqueInterrupt } from './critique/interrupt-handler.js';
 import { handleCritiqueArtifact } from './critique/artifact-handler.js';
 import { createCopilotStreamHandler } from './copilot-stream.js';
 import { createJsonEventStreamHandler } from './json-event-stream.js';
+import { classifyAgentAuthFailure, cursorAuthGuidance } from './runtimes/auth.js';
 import { createQoderStreamHandler } from './qoder-stream.js';
 import { subscribe as subscribeFileEvents } from './project-watchers.js';
 import { renderDesignSystemPreview } from './design-system-preview.js';
@@ -3992,9 +3993,7 @@ export async function startServer({
     child.stdout.on('data', (chunk) => {
       childStdoutSeen = true;
       noteAgentActivity();
-      if (def.id === 'claude') {
-        agentStdoutTail = `${agentStdoutTail}${chunk}`.slice(-1000);
-      }
+      agentStdoutTail = `${agentStdoutTail}${chunk}`.slice(-2000);
     });
 
     // ---- Memory: assistant-reply buffer for LLM extraction --------------
@@ -4179,6 +4178,23 @@ export async function startServer({
         if (agentStreamError) return;
         agentStreamError = String(ev.message || 'Agent stream error');
         clearInactivityWatchdog();
+        const authFailure = classifyAgentAuthFailure(
+          agentId,
+          [
+            agentStreamError,
+            typeof ev.raw === 'string' ? ev.raw : '',
+            agentStdoutTail,
+            agentStderrTail,
+          ].join('\n'),
+        );
+        if (authFailure?.status === 'missing') {
+          send('error', createSseErrorPayload(
+            'AGENT_AUTH_REQUIRED',
+            cursorAuthGuidance(),
+            { retryable: true },
+          ));
+          return;
+        }
         send('error', createSseErrorPayload('AGENT_EXECUTION_FAILED', agentStreamError, {
           details: ev.raw ? { raw: ev.raw } : undefined,
           retryable: false,
@@ -4292,9 +4308,7 @@ export async function startServer({
     run.acpSession = acpSession;
     child.stderr.on('data', (chunk) => {
       noteAgentActivity();
-      if (def.id === 'claude') {
-        agentStderrTail = `${agentStderrTail}${chunk}`.slice(-1000);
-      }
+      agentStderrTail = `${agentStderrTail}${chunk}`.slice(-2000);
       send('stderr', { chunk });
     });
 
@@ -4313,6 +4327,18 @@ export async function startServer({
         return design.runs.finish(run, 'failed', code ?? 1, signal ?? null);
       }
       if (agentStreamError) {
+        return design.runs.finish(run, 'failed', code ?? 1, signal ?? null);
+      }
+      if (
+        code !== 0 &&
+        !run.cancelRequested &&
+        classifyAgentAuthFailure(agentId, `${agentStderrTail}\n${agentStdoutTail}`)?.status === 'missing'
+      ) {
+        send('error', createSseErrorPayload(
+          'AGENT_AUTH_REQUIRED',
+          cursorAuthGuidance(),
+          { retryable: true },
+        ));
         return design.runs.finish(run, 'failed', code ?? 1, signal ?? null);
       }
       // Empty-output guard: a clean `code === 0` exit on a stream we are
