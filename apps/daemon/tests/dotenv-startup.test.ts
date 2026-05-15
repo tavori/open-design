@@ -8,6 +8,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  applyOdEnvFromParsed,
+  DOTENV_LOADABLE_KEYS,
   dotenvLoaded,
   ensureDotenvLoaded,
   resolveChatRunInactivityTimeoutMs,
@@ -115,70 +117,82 @@ describe('ensureDotenvLoaded', () => {
     }
   });
 
-  it('does not load non-OD_ keys from .env into process.env', async () => {
-    // Regression: an unfiltered dotenv.config() would copy unrelated keys
-    // (ANTHROPIC_BASE_URL, OPENAI_API_KEY, …) from the developer's local
-    // .env into process.env on daemon startup and silently change auth
-    // routing for Claude/Codex. The loader is scoped to OD_-prefixed keys
-    // only; verify that scoping holds via a child process with a clean
-    // env so this test is not polluted by the host process state. The
-    // child script mirrors the production loader logic verbatim — if
-    // ensureDotenvLoaded ever drops the OD_-prefix filter again, the
-    // assertion below will fail.
-    const tmpDir = mkdtempSync(join(tmpdir(), 'od-dotenv-scope-'));
+  it('only loads DOTENV_LOADABLE_KEYS from a parsed .env into process.env', () => {
+    // Regression coverage for the actual production loader path. Drive
+    // `applyOdEnvFromParsed` directly so the assertion fails closed if the
+    // helper ever drops the allowlist filter or starts honoring additional
+    // keys without explicit opt-in. The previous version of this test
+    // re-implemented the loader logic in a child script, which would have
+    // continued to pass even if the production helper regressed.
+    const guardedKeys = [
+      ...DOTENV_LOADABLE_KEYS,
+      // Keys deliberately NOT in the allowlist. Snapshotting + restoring
+      // them keeps an unrelated `.env` from leaking into the test process.
+      'ANTHROPIC_BASE_URL',
+      'OPENAI_API_KEY',
+      'OD_BIND_HOST',
+    ] as const;
+    const saved: Record<string, string | undefined> = {};
+    for (const key of guardedKeys) {
+      saved[key] = process.env[key];
+      delete process.env[key];
+    }
     try {
-      writeFileSync(
-        join(tmpDir, '.env'),
-        [
-          'OD_CHAT_RUN_INACTIVITY_TIMEOUT_MS=99999',
-          'ANTHROPIC_BASE_URL=https://example-rogue-host.invalid',
-          'OPENAI_API_KEY=sk-test-should-not-leak',
-        ].join('\n'),
-      );
-
-      const script = `
-import { readFileSync } from 'node:fs';
-import { parse } from ${JSON.stringify(dotenvMainPath)};
-const contents = readFileSync(new URL('.env', import.meta.url), 'utf8');
-const parsed = parse(contents);
-for (const [k, v] of Object.entries(parsed)) {
-  if (!k.startsWith('OD_')) continue;
-  if (Object.prototype.hasOwnProperty.call(process.env, k)) continue;
-  process.env[k] = v;
-}
-process.stdout.write(
-  'RESULT=' +
-    JSON.stringify({
-      timeout: process.env.OD_CHAT_RUN_INACTIVITY_TIMEOUT_MS ?? null,
-      anthropic: process.env.ANTHROPIC_BASE_URL ?? null,
-      openai: process.env.OPENAI_API_KEY ?? null,
-    }) + '\\n',
-);
-`;
-      const scriptPath = join(tmpDir, 'check.mjs');
-      writeFileSync(scriptPath, script);
-
-      const { execFileSync } = await import('node:child_process');
-      const childEnv = { ...process.env } as Record<string, string>;
-      delete childEnv.OD_CHAT_RUN_INACTIVITY_TIMEOUT_MS;
-      delete childEnv.ANTHROPIC_BASE_URL;
-      delete childEnv.OPENAI_API_KEY;
-
-      const output = execFileSync('node', [scriptPath], {
-        encoding: 'utf-8',
-        cwd: tmpDir,
-        env: childEnv,
+      applyOdEnvFromParsed({
+        OD_CHAT_RUN_INACTIVITY_TIMEOUT_MS: '99999',
+        // Other early-default reads on the same startup path (see the
+        // narrow-allowlist rationale on DOTENV_LOADABLE_KEYS); these must
+        // be ignored so the .env contract does not drift behind contributors.
+        OD_BIND_HOST: '0.0.0.0',
+        // Unrelated keys that have historically caused auth-routing
+        // regressions when dotenv.config() ran unfiltered.
+        ANTHROPIC_BASE_URL: 'https://example-rogue-host.invalid',
+        OPENAI_API_KEY: 'sk-test-should-not-leak',
       });
-      const line = output.split('\n').find((l) => l.startsWith('RESULT='));
-      const result = JSON.parse(line?.replace('RESULT=', '') ?? '{}');
 
-      // OD_-prefixed key must flow through.
+      const result = {
+        timeout: process.env.OD_CHAT_RUN_INACTIVITY_TIMEOUT_MS ?? null,
+        bindHost: process.env.OD_BIND_HOST ?? null,
+        anthropic: process.env.ANTHROPIC_BASE_URL ?? null,
+        openai: process.env.OPENAI_API_KEY ?? null,
+      };
+
+      // The single allowlisted key flows through.
       expect(result.timeout).toBe('99999');
-      // Non-OD_ keys must stay out of process.env.
+      // OD_BIND_HOST is intentionally NOT honored here — the startServer
+      // signature evaluates it at function-arg default time, before
+      // `await ensureDotenvLoaded()` runs (see comment on
+      // DOTENV_LOADABLE_KEYS). The loader stays consistent with that by
+      // ignoring it.
+      expect(result.bindHost).toBeNull();
+      // Non-OD keys must stay out of process.env.
       expect(result.anthropic).toBeNull();
       expect(result.openai).toBeNull();
     } finally {
-      rmSync(tmpDir, { recursive: true, force: true });
+      for (const key of guardedKeys) {
+        if (saved[key] === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = saved[key];
+        }
+      }
+    }
+  });
+
+  it('lets a pre-existing process.env value win over the parsed .env entry', () => {
+    // Drives the production helper directly so the once-only `dotenvLoaded`
+    // module guard does not get in the way. The pre-existing value comes
+    // from the host environment (or a real `export`); .env must never
+    // override it.
+    const key = 'OD_CHAT_RUN_INACTIVITY_TIMEOUT_MS';
+    const previous = process.env[key];
+    process.env[key] = '77777';
+    try {
+      applyOdEnvFromParsed({ [key]: '11111' });
+      expect(process.env[key]).toBe('77777');
+    } finally {
+      if (previous === undefined) delete process.env[key];
+      else process.env[key] = previous;
     }
   });
 

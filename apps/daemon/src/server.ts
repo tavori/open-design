@@ -2140,6 +2140,37 @@ export interface StartServerOptions {
 const DEFAULT_CHAT_RUN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_CHAT_RUN_INACTIVITY_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * The single env key this loader is allowed to import from a local `.env`.
+ *
+ * Why this is a one-key allowlist rather than an `OD_`-prefix filter: other
+ * `OD_*` reads in this file happen at function-signature default time (for
+ * example `startServer({ host = process.env.OD_BIND_HOST || '127.0.0.1' })`),
+ * which is evaluated before `await ensureDotenvLoaded()` runs. Honoring more
+ * `OD_*` keys here would silently support some of them while ignoring others,
+ * producing an inconsistent `.env` contract. The scope is deliberately the
+ * single key this PR is shipping; extending the contract later means moving
+ * the corresponding early-default reads behind `ensureDotenvLoaded` and
+ * adding coverage in `dotenv-startup.test.ts`.
+ */
+export const DOTENV_LOADABLE_KEYS = ['OD_CHAT_RUN_INACTIVITY_TIMEOUT_MS'] as const;
+
+/**
+ * Pure helper: copy the allowlisted keys from a parsed `.env` object into
+ * `process.env`, skipping keys that are already defined so a real environment
+ * value continues to win over the `.env` fallback. Exported so the test
+ * suite can drive the production code path directly instead of re-stating
+ * the filter logic in a child script.
+ */
+export function applyOdEnvFromParsed(parsed: Record<string, string>): void {
+  for (const key of DOTENV_LOADABLE_KEYS) {
+    const value = parsed[key];
+    if (typeof value !== 'string') continue;
+    if (Object.prototype.hasOwnProperty.call(process.env, key)) continue;
+    process.env[key] = value;
+  }
+}
+
 export let dotenvLoaded = false;
 export async function ensureDotenvLoaded() {
   if (dotenvLoaded) return;
@@ -2148,21 +2179,11 @@ export async function ensureDotenvLoaded() {
     const dotenvPath = path.resolve(process.cwd(), '.env');
     const { readFileSync } = await import('node:fs');
     const { parse } = await import('dotenv');
-    // Parse without mutating process.env. This loader exists only to surface
-    // OD_-prefixed runtime overrides (e.g. OD_CHAT_RUN_INACTIVITY_TIMEOUT_MS)
-    // from a local .env, so we hard-filter to that namespace before copying.
-    // Without the filter, any other key the developer happens to keep in
-    // .env (ANTHROPIC_BASE_URL, OPENAI_API_KEY, …) would silently flow into
-    // daemon process state and could change auth routing on startup. We also
-    // skip keys already present in process.env so a real environment value
-    // continues to win over the .env fallback.
+    // Parse without mutating process.env, then apply via the same helper
+    // the tests exercise so prod and coverage stay in lockstep. The
+    // narrow-allowlist rationale lives on `DOTENV_LOADABLE_KEYS` above.
     const contents = readFileSync(dotenvPath, 'utf8');
-    const parsed = parse(contents);
-    for (const [key, value] of Object.entries(parsed)) {
-      if (!key.startsWith('OD_')) continue;
-      if (Object.prototype.hasOwnProperty.call(process.env, key)) continue;
-      process.env[key] = value;
-    }
+    applyOdEnvFromParsed(parse(contents));
   } catch { /* dotenv not installed, .env missing, or unreadable */ }
 }
 
