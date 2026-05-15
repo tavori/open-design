@@ -2141,9 +2141,24 @@ export async function ensureDotenvLoaded() {
   dotenvLoaded = true;
   try {
     const dotenvPath = path.resolve(process.cwd(), '.env');
-    const { config } = await import('dotenv');
-    config({ path: dotenvPath });
-  } catch { /* dotenv not installed or .env missing */ }
+    const { readFileSync } = await import('node:fs');
+    const { parse } = await import('dotenv');
+    // Parse without mutating process.env. This loader exists only to surface
+    // OD_-prefixed runtime overrides (e.g. OD_CHAT_RUN_INACTIVITY_TIMEOUT_MS)
+    // from a local .env, so we hard-filter to that namespace before copying.
+    // Without the filter, any other key the developer happens to keep in
+    // .env (ANTHROPIC_BASE_URL, OPENAI_API_KEY, …) would silently flow into
+    // daemon process state and could change auth routing on startup. We also
+    // skip keys already present in process.env so a real environment value
+    // continues to win over the .env fallback.
+    const contents = readFileSync(dotenvPath, 'utf8');
+    const parsed = parse(contents);
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!key.startsWith('OD_')) continue;
+      if (Object.prototype.hasOwnProperty.call(process.env, key)) continue;
+      process.env[key] = value;
+    }
+  } catch { /* dotenv not installed, .env missing, or unreadable */ }
 }
 
 export function resolveChatRunInactivityTimeoutMs() {
