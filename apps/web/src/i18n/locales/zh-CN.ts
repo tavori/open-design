@@ -47,7 +47,7 @@ export const zhCN: Dict = {
   'settings.welcomeSubtitle':
     '选择你希望使用的执行方式。后续可以随时从顶部「设置」按钮中修改。',
   'settings.kicker': '设置',
-  'settings.title': '执行模式与模型',
+  'settings.title': '执行模式',
   'settings.subtitle': '在本机 CLI 与 BYOK 之间选择。API Key 只保存在当前浏览器中。',
   'settings.modeAria': '执行模式',
   'settings.protocolAria': 'API 协议',
@@ -127,7 +127,7 @@ export const zhCN: Dict = {
   'settings.apiHint': '请求会通过本机 daemon 代理发送到你设置的 Base URL。Key 只保存在当前浏览器中，并随提供方请求发送。',
   'settings.skipForNow': '暂时跳过',
   'settings.getStarted': '开始使用',
-  'settings.envConfigure': '配置执行模式',
+  'settings.envConfigure': '执行模式',
   'settings.localCli': '本机 CLI',
   'settings.anthropicApi': 'Anthropic API',
   'settings.noAgentSelected': '尚未选择代理',
@@ -138,6 +138,7 @@ export const zhCN: Dict = {
   'settings.themeSystem': '系统',
   'settings.themeLight': '浅色',
   'settings.themeDark': '深色',
+  'settings.agentModelHead': '模型：',
   'settings.modelPicker': '模型',
   'settings.reasoningPicker': '推理强度',
   'settings.modelPickerHint':
@@ -200,6 +201,8 @@ export const zhCN: Dict = {
   'settings.runtimePackaged': '已打包应用',
   'settings.runtimeDevelopment': '开发环境',
   'settings.versionUnavailable': '守护进程离线时无法获取版本详情。',
+  'settings.installLatest': '安装最新版本',
+  'settings.alreadyLatest': '当前为最新版本',
 
   // MCP server settings
   'settings.mcpTitle': 'MCP server',
@@ -1447,6 +1450,7 @@ export const zhCN: Dict = {
   'settings.memoryFlashSaved': '✓ 已保存',
   'settings.memoryFlashDeleted': '✓ 已删除',
   'settings.memoryFlashIndexSaved': '✓ 索引已保存',
+  'settings.memoryFlashPathCopied': '✓ 路径已复制',
   'settings.memoryNameLabel': '标题',
   'settings.memoryTypeLabel': '类型',
   'settings.memoryDescLabel': '描述',
